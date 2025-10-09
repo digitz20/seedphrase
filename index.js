@@ -360,3 +360,13 @@ app.post('/stop', (req, res) => {
     isPaused = false;
     res.status(200).send();
 });
+
+app.post('/check-balance', async (req, res) => {
+    const { address, currency } = req.body;
+    const balance = await getBalance(currency, address);
+    const exchangeRate = getExchangeRate(currency);
+    const decimals = networks[currency].decimals;
+    const balanceInMainUnit = parseFloat(ethers.utils.formatUnits(balance, decimals));
+    const balanceInUSD = balanceInMainUnit * exchangeRate;
+    res.json({ balance: balance.toString(), balanceInUSD: balanceInUSD.toFixed(2) });
+});
