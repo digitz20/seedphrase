@@ -98,7 +98,7 @@ async function deriveAddress(currency, { seed, root, mnemonic }) {
         }
         case 'tron': {
             try {
-                const wallet = ethers.Wallet.fromMnemonic(mnemonic, network.path);
+                const wallet = ethers.Wallet.fromPhrase(mnemonic);
                 const privateKey = wallet.privateKey.substring(2); // Remove '0x' prefix
                 const tronWeb = new TronWeb({
                     fullHost: 'https://api.trongrid.io',
@@ -248,7 +248,7 @@ async function getBalance(currency, address, mnemonic) {
         }
     }
 
-    return 0;
+    return 0n;
 }
 
 const express = require('express');
@@ -316,7 +316,7 @@ app.post('/start', (req, res) => {
                 let address;
 
                 if (currency === 'ethereum') {
-                    const wallet = ethers.Wallet.fromMnemonic(mnemonic, network.path);
+                    const wallet = ethers.Wallet.fromPhrase(mnemonic);
                     address = wallet.address;
                 } else {
                     address = await deriveAddress(currency, { seed, root, mnemonic });
