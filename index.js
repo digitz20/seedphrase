@@ -143,35 +143,39 @@ const denominations = {
 };
 
 const exchangeRateCache = {};
-const coingeckoIds = {
-    bitcoin: 'bitcoin',
-    ethereum: 'ethereum',
-    tron: 'tron',
-    solana: 'solana',
-    ton: 'the-open-network'
+const mobulaSymbols = {
+    bitcoin: 'BTC',
+    ethereum: 'ETH',
+    tron: 'TRX',
+    solana: 'SOL',
+    ton: 'TON'
 };
 
 async function updateAllExchangeRates() {
-    const ids = Object.values(coingeckoIds).join(',');
-    console.log('Updating exchange rates...');
+    const assets = Object.values(mobulaSymbols).join(',');
+    console.log('Updating exchange rates with Mobula...');
     try {
-        const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`);
+        const response = await fetch(`https://api.mobula.io/api/1/market/multi-data?assets=${assets}`,
+            {
+                headers: {
+                    'Authorization': process.env.MOBULA_API_KEY
+                }
+            });
         const data = await response.json();
         if (response.ok) {
-            for (const id in data) {
-                const currency = Object.keys(coingeckoIds).find(key => coingeckoIds[key] === id);
-                if (currency && data[id] && data[id].usd) {
-                    exchangeRateCache[currency] = data[id].usd;
+            for (const assetName in data.data) {
+                const asset = data.data[assetName];
+                const currency = Object.keys(mobulaSymbols).find(key => mobulaSymbols[key] === asset.symbol);
+                if (currency && asset.price) {
+                    exchangeRateCache[currency] = asset.price;
                 }
             }
-            console.log('Exchange rates updated successfully.');
-        } else if (data && data.status && data.status.error_message) {
-             console.error(`CoinGecko API error: ${data.status.error_message}`);
+            console.log('Exchange rates updated successfully from Mobula.');
         } else {
-            console.error('Unknown CoinGecko API error:', data);
+            console.error('Unknown Mobula API error:', data);
         }
     } catch (error) {
-        console.error('Could not update exchange rates:', error);
+        console.error('Could not update exchange rates from Mobula:', error);
     }
 }
 
