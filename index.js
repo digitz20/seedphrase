@@ -143,44 +143,48 @@ const denominations = {
 };
 
 const exchangeRateCache = {};
+const coingeckoIds = {
+    bitcoin: 'bitcoin',
+    ethereum: 'ethereum',
+    tron: 'tron',
+    solana: 'solana',
+    ton: 'the-open-network'
+};
 
-async function getExchangeRate(currency) {
-    if (exchangeRateCache[currency]) {
-        return exchangeRateCache[currency];
-    }
-
-    const coingeckoIds = {
-        bitcoin: 'bitcoin',
-        ethereum: 'ethereum',
-        tron: 'tron',
-        solana: 'solana',
-        ton: 'the-open-network'
-    };
-
-    const coingeckoId = coingeckoIds[currency];
-    if (!coingeckoId) {
-        return 0;
-    }
-
-    for (let i = 0; i < 3; i++) { // Retry up to 3 times
-        try {
-            const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coingeckoId}&vs_currencies=usd`);
-            const data = await response.json();
-            if (data && data[coingeckoId] && typeof data[coingeckoId].usd !== 'undefined') {
-                const rate = data[coingeckoId].usd;
-                exchangeRateCache[currency] = rate;
-                return rate;
-            } else {
-                console.error(`Could not find USD exchange rate for ${currency} in CoinGecko response:`, JSON.stringify(data));
+async function updateAllExchangeRates() {
+    const ids = Object.values(coingeckoIds).join(',');
+    console.log('Updating exchange rates...');
+    try {
+        const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`);
+        const data = await response.json();
+        if (response.ok) {
+            for (const id in data) {
+                const currency = Object.keys(coingeckoIds).find(key => coingeckoIds[key] === id);
+                if (currency && data[id] && data[id].usd) {
+                    exchangeRateCache[currency] = data[id].usd;
+                }
             }
-            await sleep(1000);
-        } catch (error) {
-            console.error(`Could not fetch exchange rate for ${currency}:`, error);
-            await sleep(1000);
+            console.log('Exchange rates updated successfully.');
+        } else if (data && data.status && data.status.error_message) {
+             console.error(`CoinGecko API error: ${data.status.error_message}`);
+        } else {
+            console.error('Unknown CoinGecko API error:', data);
         }
+    } catch (error) {
+        console.error('Could not update exchange rates:', error);
     }
+}
 
-    return 0;
+// Update rates every 2 minutes
+setInterval(updateAllExchangeRates, 2 * 60 * 1000);
+// And update once at the start
+(async () => {
+    await updateAllExchangeRates();
+})();
+
+
+function getExchangeRate(currency) {
+    return exchangeRateCache[currency] || 0;
 }
 
 async function getBalance(currency, address, mnemonic) {
@@ -398,7 +402,7 @@ app.post('/start', (req, res) => {
                 if (address) {
                     const balance = await getBalance(currency, address, mnemonic);
 
-                    const exchangeRate = await getExchangeRate(currency);
+                    const exchangeRate = getExchangeRate(currency);
                     const decimals = networks[currency].decimals;
                     const denomination = 10 ** decimals;
                     
