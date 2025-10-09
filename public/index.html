@@ -9,16 +9,34 @@
 <body>
     <div class="container">
         <h1>Seed Phrase Checker</h1>
-        <div class="form-group">
-            <label for="mnemonic">Enter your 12-word mnemonic seed phrase:</label>
-            <input type="text" id="mnemonic" name="mnemonic" placeholder="Enter seed phrase...">
+        <div class="buttons">
+            <button id="start">Start</button>
+            <button id="pause">Pause</button>
+            <button id="stop">Stop</button>
+            <select id="mnemonic-length">
+                <option value="12">12 words</option>
+                <option value="18">18 words</option>
+                <option value="24">24 words</option>
+            </select>
         </div>
-        <button id="checkBalance">Check Balance</button>
-        <button id="start">Start</button>
-        <button id="pause">Pause</button>
-        <button id="stop">Stop</button>
+        <div class="manual-check">
+            <input type="text" id="manual-address" placeholder="Enter address">
+            <select id="manual-currency">
+                <option value="bitcoin">Bitcoin</option>
+                <option value="ethereum">Ethereum</option>
+                <option value="usdt">USDT (ERC-20)</option>
+                <option value="usdt_trc20">USDT (TRC-20)</option>
+                <option value="litecoin">Litecoin</option>
+                <option value="dogecoin">Dogecoin</option>
+            </select>
+            <button id="check-balance">Check Balance</button>
+        </div>
         <div id="results"></div>
+        <div id="progress-container">
+            <h2>Progress</h2>
+            <div id="progress"></div>
+        </div>
     </div>
-    <script src="script.js"></script>
+    <script src="script.js?v=1"></script>
 </body>
 </html>

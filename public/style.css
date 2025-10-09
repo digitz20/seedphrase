@@ -40,6 +40,12 @@ input[type="text"] {
     border-radius: 4px;
 }
 
+.buttons {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+}
+
 button {
     background-color: #007bff;
     color: #fff;
@@ -47,7 +53,6 @@ button {
     border: none;
     border-radius: 4px;
     cursor: pointer;
-    width: 100%;
     font-size: 1rem;
 }
 
@@ -55,10 +60,68 @@ button:hover {
     background-color: #0056b3;
 }
 
+.buttons select {
+    padding: 10px;
+    font-size: 16px;
+    margin-left: 10px;
+}
+
+.manual-check {
+    margin-top: 20px;
+    display: flex;
+    align-items: center;
+}
+
+.manual-check input {
+    padding: 10px;
+    font-size: 16px;
+    flex-grow: 1;
+    margin-right: 10px;
+}
+
+.manual-check select {
+    padding: 10px;
+    font-size: 16px;
+    margin-right: 10px;
+}
+
+.manual-check button {
+    padding: 10px 20px;
+    font-size: 16px;
+    cursor: pointer;
+}
+
 #results {
+    margin-top: 20px;
+}
+
+#progress-container {
     margin-top: 1.5rem;
+}
+
+#progress {
     padding: 1rem;
     background-color: #f9f9f9;
     border: 1px solid #eee;
     border-radius: 4px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.progress-item {
+    padding: 0.5rem;
+    border-bottom: 1px solid #ddd;
+}
+
+.progress-item:last-child {
+    border-bottom: none;
+}
+
+.result-item {
+    padding: 0.5rem;
+    border-bottom: 1px solid #ddd;
+}
+
+.result-item:last-child {
+    border-bottom: none;
 }
