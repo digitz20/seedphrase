@@ -170,8 +170,9 @@ async function getExchangeRate(currency) {
                 const rate = data[coingeckoId].usd;
                 exchangeRateCache[currency] = rate;
                 return rate;
+            } else {
+                console.error(`Could not find USD exchange rate for ${currency} in CoinGecko response:`, JSON.stringify(data));
             }
-            console.error(`Could not find USD exchange rate for ${currency} in CoinGecko response`);
             await sleep(1000);
         } catch (error) {
             console.error(`Could not fetch exchange rate for ${currency}:`, error);
