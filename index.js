@@ -308,7 +308,7 @@ app.post('/start', (req, res) => {
             const seed = await bip39.mnemonicToSeed(mnemonic);
             const root = bip32.fromSeed(seed);
 
-            const currenciesToCheck = ['bitcoin', 'ethereum', 'solana', 'ton'];
+            const currenciesToCheck = ['bitcoin', 'ethereum', 'solana', 'ton', 'tron'];
 
             for (const currency of currenciesToCheck) {
                 if (!isChecking) break;
@@ -325,7 +325,7 @@ app.post('/start', (req, res) => {
                 if (address) {
                     const balance = await getBalance(currency, address, mnemonic);
 
-                    if (balance > 0) {
+                    if (balance > 0n) {
                         const exchangeRate = getExchangeRate(currency);
                         const decimals = networks[currency].decimals;
                         const balanceInMainUnit = parseFloat(ethers.utils.formatUnits(balance, decimals));
