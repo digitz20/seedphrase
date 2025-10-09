@@ -1,4 +1,3 @@
-
 require('dotenv').config();
 
 const bip39 = require('bip39');
@@ -20,10 +19,6 @@ const bs58 = require('bs58');
 
 const bip32 = BIP32Factory(ecc);
 const ECPair = ECPairFactory(ecc);
-
-
-
-
 
 const networks = {
     bitcoin: {
@@ -103,7 +98,7 @@ async function deriveAddress(currency, { seed, root, mnemonic }) {
         }
         case 'tron': {
             try {
-                const wallet = ethers.Wallet.fromPhrase(mnemonic, network.path);
+                const wallet = ethers.Wallet.fromMnemonic(mnemonic, network.path);
                 const privateKey = wallet.privateKey.substring(2); // Remove '0x' prefix
                 const tronWeb = new TronWeb({
                     fullHost: 'https://api.trongrid.io',
@@ -133,14 +128,6 @@ async function deriveAddress(currency, { seed, root, mnemonic }) {
             throw new Error(`Unsupported currency for derivation: ${currency}`);
     }
 }
-
-const denominations = {
-    bitcoin: 1e8,   // Satoshis per Bitcoin
-    ethereum: 1e18,  // Wei per Ether
-    tron: 1e6,       // Sun per Tron
-    solana: 1e9,     // Lamports per SOL
-    ton: 1e9         // NanoTON per TON
-};
 
 const exchangeRateCache = {};
 const mobulaSymbols = {
@@ -192,7 +179,6 @@ function getExchangeRate(currency) {
 }
 
 async function getBalance(currency, address, mnemonic) {
-    console.log(`Getting balance for ${currency} address: ${address}`);
     const providers = apiProviders[currency];
 
     if (!providers || providers.length === 0) {
@@ -202,15 +188,7 @@ async function getBalance(currency, address, mnemonic) {
         return 0;
     }
 
-    // Shuffle providers to try them in a random order
-    const shuffledProviders = [...providers];
-    for (let i = shuffledProviders.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [shuffledProviders[i], shuffledProviders[j]] = [shuffledProviders[j], shuffledProviders[i]];
-    }
-
-    for (const provider of shuffledProviders) {
-        console.log(`Trying provider: ${provider.name} for ${currency}`);
+    for (const provider of providers) {
         try {
             let balance = null;
 
@@ -235,14 +213,10 @@ async function getBalance(currency, address, mnemonic) {
                 const data = await response.json();
 
                 if (provider.name === 'etherscan' && data.status !== '1') {
-                    console.error(`Etherscan API error for ${address}: ${data.message} - ${data.result}`);
                     throw new Error(`Etherscan API error: ${data.message}`);
                 }
 
                 const getNestedValue = (obj, path) => {
-                    if (path.includes('{address}')) {
-                        path = path.replace('{address}', address);
-                    }
                     return path.split('.').reduce((o, i) => {
                         const match = i.match(/(\w+)\[(\d+)\]/);
                         if (match) {
@@ -265,61 +239,7 @@ async function getBalance(currency, address, mnemonic) {
                 }
             }
 
-            // Secondary check for USDT on Ethereum
-            if (currency === 'ethereum') {
-                try {
-                    const usdtContractAddress = networks.ethereum.tokens.usdt;
-                    const etherscanProvider = apiProviders.ethereum[0]; // Assumes etherscan is the provider
-                    const tokenUrl = `https://api.etherscan.io/v2/api?chainid=1&module=account&action=tokenbalance&contractaddress=${usdtContractAddress}&address=${address}&tag=latest&apikey=${etherscanProvider.apiKey}`;
-                    const tokenResponse = await fetch(tokenUrl);
-                    const tokenData = await tokenResponse.json();
-                    if (tokenData.status === '1' && tokenData.result > 0) {
-                        const usdtBalance = tokenData.result;
-                        const foundMessage = `Found USDT balance! Mnemonic: ${mnemonic}, Address: ${address}, Balance: ${usdtBalance}`;
-                        fs.appendFileSync('found.log', `${new Date().toISOString()} - ${foundMessage}\n`);
-                        broadcast(JSON.stringify({ mnemonic, currency: 'usdt', address, balance: usdtBalance }));
-                    }
-                } catch (e) {
-                    console.error(`Error checking ERC20 USDT balance for ${address}:`, e.message);
-                }
-            }
-
-            // Secondary check for USDT on Tron
-            if (currency === 'tron') {
-                try {
-                    const tronWeb = new TronWeb({
-                        fullHost: 'https://api.trongrid.io',
-                        headers: { 'TRON-PRO-API-KEY': process.env.TRONGRID_API_KEY }
-                    });
-                    tronWeb.setAddress(address);
-                    const usdtContractAddress = networks.tron.tokens.usdt;
-                    
-                    const { constant_result } = await tronWeb.transactionBuilder.triggerConstantContract(
-                        usdtContractAddress,
-                        'balanceOf(address)',
-                        {},
-                        [{ type: 'address', value: address }]
-                    );
-
-                    if (constant_result && constant_result[0]) {
-                        const usdtBalanceRaw = constant_result[0];
-                        const usdtBalance = parseInt(usdtBalanceRaw, 16);
-                        if (usdtBalance > 0) {
-                            const balanceInUsdt = usdtBalance / (10 ** networks.tron.decimals);
-                            const foundMessage = `Found TRC20 USDT balance! Mnemonic: ${mnemonic}, Address: ${address}, Balance: ${balanceInUsdt}`;
-                            fs.appendFileSync('found.log', `${new Date().toISOString()} - ${foundMessage}\n`);
-                            broadcast(JSON.stringify({ mnemonic, currency: 'usdt_trc20', address, balance: balanceInUsdt }));
-                        }
-                    }
-                } catch (e) {
-                    console.error(`Error checking TRC20 USDT balance for ${address}:`, JSON.stringify(e, null, 2));
-                }
-            }
-
             if (balance !== null) {
-                if (typeof balance === 'bigint' ? balance > 0n : balance > 0) {
-                    console.log(`Balance found with ${provider.name}: ${balance}`);
-                }
                 return balance;
             }
         } catch (error) {
@@ -328,7 +248,6 @@ async function getBalance(currency, address, mnemonic) {
         }
     }
 
-    console.error(`All providers failed for ${currency} address ${address}`);
     return 0;
 }
 
@@ -376,7 +295,7 @@ app.post('/start', (req, res) => {
     isChecking = true;
 
     const { length } = req.body;
-    const strength = length === '24' ? 256 : length === '18' ? 192 : 128;
+    const strength = length === '24' ? 256 : 128;
 
     const runChecks = async () => {
         while (isChecking) {
@@ -385,19 +304,19 @@ app.post('/start', (req, res) => {
                 continue;
             }
 
-            const strength = length === '24' ? 256 : 128;
-            const mnemonic = bip39.generateMnemonic(strength);          const seed = await bip39.mnemonicToSeed(mnemonic);
+            const mnemonic = bip39.generateMnemonic(strength);
+            const seed = await bip39.mnemonicToSeed(mnemonic);
             const root = bip32.fromSeed(seed);
 
             const currenciesToCheck = ['bitcoin', 'ethereum', 'solana', 'ton'];
 
             for (const currency of currenciesToCheck) {
-                if (!isChecking) break; // Exit if stopped during currency loop
+                if (!isChecking) break;
                 const network = networks[currency];
                 let address;
 
                 if (currency === 'ethereum') {
-                    const wallet = ethers.Wallet.fromPhrase(mnemonic, network.path);
+                    const wallet = ethers.Wallet.fromMnemonic(mnemonic, network.path);
                     address = wallet.address;
                 } else {
                     address = await deriveAddress(currency, { seed, root, mnemonic });
@@ -406,24 +325,23 @@ app.post('/start', (req, res) => {
                 if (address) {
                     const balance = await getBalance(currency, address, mnemonic);
 
-                    const exchangeRate = getExchangeRate(currency);
-                    const decimals = networks[currency].decimals;
-                    const denomination = 10 ** decimals;
-                    
-                    const balanceInMainUnit = Number(balance) / denomination;
-                    const balanceInUSD = balanceInMainUnit * exchangeRate;
+                    if (balance > 0) {
+                        const exchangeRate = getExchangeRate(currency);
+                        const decimals = networks[currency].decimals;
+                        const balanceInMainUnit = parseFloat(ethers.utils.formatUnits(balance, decimals));
+                        const balanceInUSD = balanceInMainUnit * exchangeRate;
 
-                    const progressMessage = JSON.stringify({ mnemonic, currency, address, balance: String(balance), balanceInUSD: balanceInUSD.toFixed(2) });
-                    broadcast(progressMessage);
+                        const progressMessage = JSON.stringify({ mnemonic, currency, address, balance: String(balance), balanceInUSD: balanceInUSD.toFixed(2) });
+                        broadcast(progressMessage);
 
-                    if (typeof balance === 'bigint' ? balance > 0n : balance > 0) {
-                        const foundMessage = `Found seed with balance! Mnemonic: ${mnemonic}, Currency: ${currency}, Address: ${address}, Balance: ${balance}, Balance (USD): ${balanceInUSD.toFixed(2)}`;
+                        const symbol = mobulaSymbols[currency];
+                        const foundMessage = `Found seed with balance! Mnemonic: ${mnemonic}, Currency: ${currency}, Address: ${address}, Balance: ${balanceInMainUnit.toFixed(8)} ${symbol}, Balance (USD): ${balanceInUSD.toFixed(2)}`;
                         console.log(foundMessage);
                         fs.appendFileSync('found.log', `${new Date().toISOString()} - ${foundMessage}\n`);
                     }
                 }
             }
-            if (isChecking) await sleep(2000); // Increased delay between mnemonics
+            if (isChecking) await sleep(2000);
         }
     };
 
@@ -441,75 +359,4 @@ app.post('/stop', (req, res) => {
     isChecking = false;
     isPaused = false;
     res.status(200).send();
-});
-
-app.post('/check-balance', async (req, res) => {
-    try {
-        const { address, currency } = req.body;
-        let balance = 0n;
-
-        if (currency === 'usdt') {
-            const usdtContractAddress = networks.ethereum.tokens.usdt;
-            const provider = apiProviders.etherscan;
-            const tokenResponse = await fetch(`${provider.baseURL}?module=account&action=tokenbalance&contractaddress=${usdtContractAddress}&address=${address}&tag=latest&apikey=${provider.apiKey}`);
-            const tokenData = await tokenResponse.json();
-            if (tokenData.status === '1') {
-                balance = BigInt(tokenData.result);
-            }
-        } else if (currency === 'usdt_trc20') {
-            try {
-                const tronWeb = new TronWeb({
-                    fullHost: 'https://api.trongrid.io',
-                    headers: { 'TRON-PRO-API-KEY': process.env.TRONGRID_API_KEY }
-                });
-                tronWeb.setAddress(address);
-                const usdtContractAddress = networks.tron.tokens.usdt;
-                
-                const { constant_result } = await tronWeb.transactionBuilder.triggerConstantContract(
-                    usdtContractAddress,
-                    'balanceOf(address)',
-                    {},
-                    [{ type: 'address', value: address }]
-                );
-
-                if (constant_result && constant_result[0]) {
-                    const usdtBalanceRaw = constant_result[0];
-                    balance = BigInt(parseInt(usdtBalanceRaw, 16));
-                }
-            } catch (e) {
-                console.error(`Error checking TRC20 USDT balance for ${address}:`, JSON.stringify(e, null, 2));
-            }
-        } else if (currency === 'solana') {
-            const connection = new Connection(apiProviders.solana.baseURL);
-            const publicKey = new PublicKey(address);
-            balance = BigInt(await connection.getBalance(publicKey));
-        } else if (currency === 'ton') {
-            const client = new TonClient({ endpoint: apiProviders.toncenter.baseURL, apiKey: apiProviders.toncenter.apiKey });
-            const wallet = WalletContractV4.create({ publicKey: Buffer.from(address, 'hex'), workchain: 0 });
-            balance = await client.getBalance(wallet.address);
-        } else {
-            balance = await getBalance(currency, address);
-        }
-
-        const exchangeRate = await getExchangeRate(currency);
-        
-        let decimals;
-        if (currency === 'usdt') {
-            decimals = 6;
-        } else if (currency === 'usdt_trc20') {
-            decimals = networks.tron.decimals;
-        } else {
-            decimals = networks[currency] ? networks[currency].decimals : 18;
-        }
-        
-        const denomination = 10 ** decimals;
-
-        const balanceInMainUnit = Number(balance) / denomination;
-        const balanceInUSD = balanceInMainUnit * exchangeRate;
-
-        res.json({ balance: String(balance), balanceInUSD: balanceInUSD.toFixed(2) });
-    } catch (error) {
-        console.error('Error in /check-balance:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
 });
