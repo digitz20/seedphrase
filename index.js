@@ -351,6 +351,7 @@ app.post('/start', (req, res) => {
                 if (address) {
                     const progressMessage = JSON.stringify({ type: 'progress', mnemonic, currency, address });
                     broadcast(progressMessage);
+                    console.log(`Checking: ${currency} address ${address}`);
 
                     const balances = await getBalance(currency, address);
 
