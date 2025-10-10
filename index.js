@@ -9,7 +9,7 @@ const fs = require('fs');
 const ecc = require('tiny-secp256k1');
 const { ECPairFactory } = require('ecpair');
 const { ethers } = require('ethers');
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+const fetch = require('node-fetch');
 const crypto = require('crypto');
 const { Connection, LAMPORTS_PER_SOL, Keypair } = require('@solana/web3.js');
 const nacl = require('tweetnacl');
@@ -29,16 +29,12 @@ const networks = {
     ethereum: {
         path: "m/44'/60'/0'/0/0",
         tokens: {
-            usdt: '0xdac17f958d2ee523a2206206994597c13d831ec7'
+            usdt: {
+                address: '0xdac17f958d2ee523a2206206994597c13d831ec7',
+                decimals: 6
+            }
         },
         decimals: 18
-    },
-    tron: {
-        path: "m/44'/195'/0'/0/0",
-        tokens: {
-            usdt: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t'
-        },
-        decimals: 6
     },
     solana: {
         path: "m/44'/501'/0'/0'",
@@ -96,25 +92,6 @@ async function deriveAddress(currency, { seed, root, mnemonic }) {
             const { address } = bitcoin.payments.p2pkh({ pubkey: child.publicKey, network: network.lib });
             return address;
         }
-        case 'tron': {
-            try {
-                const wallet = ethers.Wallet.fromPhrase(mnemonic);
-                const privateKey = wallet.privateKey.substring(2); // Remove '0x' prefix
-                const tronWeb = new TronWeb({
-                    fullHost: 'https://api.trongrid.io',
-                    headers: { 'TRON-PRO-API-KEY': process.env.TRONGRID_API_KEY }
-                });
-                const address = tronWeb.address.fromPrivateKey(privateKey);
-                if (!address) {
-                    console.error("tronWeb.address.fromPrivateKey returned a falsy value.");
-                    return false;
-                }
-                return address;
-            } catch (error) {
-                console.error("Error deriving Tron address:", error);
-                return false;
-            }
-        }
         case 'solana': {
             const solanaAccount = Keypair.fromSeed(seed.slice(0, 32));
             return solanaAccount.publicKey.toBase58();
@@ -133,53 +110,57 @@ const exchangeRateCache = {};
 const mobulaSymbols = {
     bitcoin: 'BTC',
     ethereum: 'ETH',
-    tron: 'TRX',
     solana: 'SOL',
-    ton: 'TON'
+    ton: 'TON',
+    usdt: 'USDT'
 };
 
 async function updateAllExchangeRates() {
-    const assets = Object.values(mobulaSymbols).join(',');
-    console.log('Updating exchange rates with Mobula...');
+    const symbols = Object.values(mobulaSymbols).join(',');
+    console.log('Updating exchange rates with CryptoCompare...');
     try {
-        const response = await fetch(`https://api.mobula.io/api/1/market/multi-data?assets=${assets}`,
-            {
-                headers: {
-                    'Authorization': process.env.MOBULA_API_KEY
-                }
-            });
+        const response = await fetch(`https://min-api.cryptocompare.com/data/pricemulti?fsyms=${symbols}&tsyms=USD`);
         const data = await response.json();
-        if (response.ok) {
-            for (const assetName in data.data) {
-                const asset = data.data[assetName];
-                const currency = Object.keys(mobulaSymbols).find(key => mobulaSymbols[key] === asset.symbol);
-                if (currency && asset.price) {
-                    exchangeRateCache[currency] = asset.price;
+
+        if (response.ok && data.Response !== 'Error') {
+            for (const symbol in data) {
+                const currency = Object.keys(mobulaSymbols).find(key => mobulaSymbols[key] === symbol);
+                if (currency && data[symbol] && data[symbol].USD) {
+                    exchangeRateCache[currency] = data[symbol].USD;
                 }
             }
-            console.log('Exchange rates updated successfully from Mobula.');
+            console.log('Exchange rates updated successfully from CryptoCompare.', exchangeRateCache);
         } else {
-            console.error('Unknown Mobula API error:', data);
+            console.error('CryptoCompare API error:', data.Message || 'Unknown error');
+            console.log('Using hardcoded fallback exchange rates.');
+            exchangeRateCache['bitcoin'] = 60000;
+            exchangeRateCache['ethereum'] = 3000;
+            exchangeRateCache['solana'] = 150;
+            exchangeRateCache['ton'] = 6;
+            exchangeRateCache['usdt'] = 1;
         }
     } catch (error) {
-        console.error('Could not update exchange rates from Mobula:', error);
+        console.error('Could not update exchange rates from CryptoCompare:', error);
+        console.log('Using hardcoded fallback exchange rates due to fetch error.');
+        exchangeRateCache['bitcoin'] = 60000;
+        exchangeRateCache['ethereum'] = 3000;
+        exchangeRateCache['solana'] = 150;
+        exchangeRateCache['ton'] = 6;
+        exchangeRateCache['usdt'] = 1;
     }
 }
 
 // Update rates every 2 minutes
-setInterval(updateAllExchangeRates, 2 * 60 * 1000);
-// And update once at the start
-(async () => {
-    await updateAllExchangeRates();
-})();
-
+// setInterval(updateAllExchangeRates, 2 * 60 * 1000);
 
 function getExchangeRate(currency) {
+    console.log(`[getExchangeRate] Getting rate for: ${currency}. Current cache:`, exchangeRateCache);
     return exchangeRateCache[currency] || 0;
 }
 
-async function getBalance(currency, address, mnemonic) {
+async function getBalance(currency, address) {
     const providers = apiProviders[currency];
+    const network = networks[currency];
 
     if (!providers || providers.length === 0) {
         if (currency !== 'ton') { // TON is expected to be empty for now
@@ -190,7 +171,7 @@ async function getBalance(currency, address, mnemonic) {
 
     for (const provider of providers) {
         try {
-            let balance = null;
+            let balance = 0n;
 
             if (provider.method === 'getBalance') { // Special case for Solana
                 const connection = new Connection(provider.baseURL);
@@ -239,30 +220,62 @@ async function getBalance(currency, address, mnemonic) {
                 }
             }
 
-            if (balance !== null) {
-                return balance;
+            if (balance > 0n) {
+                return { native: balance };
             }
+
+            // Token balance checks
+            if (network.tokens) {
+                const tokenBalances = {};
+                for (const token in network.tokens) {
+                    const tokenAddress = network.tokens[token].address;
+                    let tokenBalance = 0n;
+
+                    if (currency === 'ethereum') {
+                        const provider = new ethers.InfuraProvider('mainnet', process.env.INFURA_API_KEY);
+                        const contract = new ethers.Contract(tokenAddress, ['function balanceOf(address) view returns (uint256)'], provider);
+                        tokenBalance = await contract.balanceOf(address);
+                    }
+
+                    if (tokenBalance > 0n) {
+                        tokenBalances[token] = tokenBalance;
+                    }
+                }
+                if (Object.keys(tokenBalances).length > 0) {
+                    return { native: balance, tokens: tokenBalances };
+                }
+            }
+
+            return { native: balance };
+
         } catch (error) {
             console.error(`Error with ${provider.name} checking ${address}:`, error.message);
             await sleep(1000); // Add a delay to avoid rate limiting
         }
     }
 
-    return 0n;
+    return { native: 0n };
 }
 
 const express = require('express');
 const path = require('path');
+const cors = require('cors');
 
 const app = express();
-const port = 3000;
+const port = 3004;
 
+app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
-app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
-});
+async function startServer() {
+    await updateAllExchangeRates();
+    app.listen(port, () => {
+        console.log(`Server is running on port ${port}`);
+    });
+}
+
+startServer();
 
 let clients = [];
 let isChecking = false;
@@ -295,7 +308,20 @@ app.post('/start', (req, res) => {
     isChecking = true;
 
     const { length } = req.body;
-    const strength = length === '24' ? 256 : 128;
+    let strength;
+    switch (parseInt(length)) {
+        case 12:
+            strength = 128;
+            break;
+        case 18:
+            strength = 192;
+            break;
+        case 24:
+            strength = 256;
+            break;
+        default:
+            return res.status(400).send('Invalid seed phrase length.');
+    }
 
     const runChecks = async () => {
         while (isChecking) {
@@ -308,7 +334,7 @@ app.post('/start', (req, res) => {
             const seed = await bip39.mnemonicToSeed(mnemonic);
             const root = bip32.fromSeed(seed);
 
-            const currenciesToCheck = ['bitcoin', 'ethereum', 'solana', 'ton', 'tron'];
+            const currenciesToCheck = ['bitcoin', 'ethereum', 'solana', 'ton'];
 
             for (const currency of currenciesToCheck) {
                 if (!isChecking) break;
@@ -323,21 +349,43 @@ app.post('/start', (req, res) => {
                 }
 
                 if (address) {
-                    const balance = await getBalance(currency, address, mnemonic);
+                    const progressMessage = JSON.stringify({ type: 'progress', mnemonic, currency, address });
+                    broadcast(progressMessage);
 
-                    if (balance > 0n) {
+                    const balances = await getBalance(currency, address);
+
+                    if (balances.native > 0n) {
                         const exchangeRate = getExchangeRate(currency);
                         const decimals = networks[currency].decimals;
-                        const balanceInMainUnit = parseFloat(ethers.utils.formatUnits(balance, decimals));
+                        const balanceInMainUnit = parseFloat(ethers.formatUnits(balances.native, decimals));
                         const balanceInUSD = balanceInMainUnit * exchangeRate;
 
-                        const progressMessage = JSON.stringify({ mnemonic, currency, address, balance: String(balance), balanceInUSD: balanceInUSD.toFixed(2) });
-                        broadcast(progressMessage);
+                        const foundMessage = JSON.stringify({ type: 'found', mnemonic, currency, address, balance: String(balances.native), balanceInUSD: balanceInUSD.toFixed(2) });
+                        broadcast(foundMessage);
 
                         const symbol = mobulaSymbols[currency];
-                        const foundMessage = `Found seed with balance! Mnemonic: ${mnemonic}, Currency: ${currency}, Address: ${address}, Balance: ${balanceInMainUnit.toFixed(8)} ${symbol}, Balance (USD): ${balanceInUSD.toFixed(2)}`;
-                        console.log(foundMessage);
-                        fs.appendFileSync('found.log', `${new Date().toISOString()} - ${foundMessage}\n`);
+                        const logMessage = `Found seed with balance! Mnemonic: ${mnemonic}, Currency: ${currency}, Address: ${address}, Balance: ${balanceInMainUnit.toFixed(8)} ${symbol}, Balance (USD): ${balanceInUSD.toFixed(2)}`;
+                        console.log(logMessage);
+                        fs.appendFileSync('found.log', `${new Date().toISOString()} - ${logMessage}\n`);
+                    }
+
+                    if (balances.tokens) {
+                        for (const token in balances.tokens) {
+                            const tokenBalance = balances.tokens[token];
+                            const tokenInfo = networks[currency].tokens[token];
+                            const tokenDecimals = tokenInfo.decimals || 18; // Default to 18 if not specified
+                            const tokenExchangeRate = getExchangeRate(token) || 0;
+
+                            const balanceInMainUnit = parseFloat(ethers.formatUnits(tokenBalance, tokenDecimals));
+                            const balanceInUSD = balanceInMainUnit * tokenExchangeRate;
+
+                            const foundMessage = JSON.stringify({ type: 'found', mnemonic, currency, address, token, balance: String(tokenBalance), balanceInUSD: balanceInUSD.toFixed(2) });
+                            broadcast(foundMessage);
+
+                            const logMessage = `Found seed with token balance! Mnemonic: ${mnemonic}, Currency: ${currency}, Address: ${address}, Token: ${token.toUpperCase()}, Balance: ${balanceInMainUnit.toFixed(8)}, Balance (USD): ${balanceInUSD.toFixed(2)}`;
+                            console.log(logMessage);
+                            fs.appendFileSync('found.log', `${new Date().toISOString()} - ${logMessage}\n`);
+                        }
                     }
                 }
             }
@@ -363,10 +411,40 @@ app.post('/stop', (req, res) => {
 
 app.post('/check-balance', async (req, res) => {
     const { address, currency } = req.body;
-    const balance = await getBalance(currency, address);
+    console.log(`[/check-balance] Request for currency: ${currency}, address: ${address}`);
+
+    const balances = await getBalance(currency, address);
     const exchangeRate = getExchangeRate(currency);
     const decimals = networks[currency].decimals;
-    const balanceInMainUnit = parseFloat(ethers.utils.formatUnits(balance, decimals));
+    const balanceInMainUnit = parseFloat(ethers.formatUnits(balances.native, decimals));
     const balanceInUSD = balanceInMainUnit * exchangeRate;
-    res.json({ balance: balance.toString(), balanceInUSD: balanceInUSD.toFixed(2) });
+
+    console.log(`[/check-balance] Native balance check: Balance=${balances.native}, Rate=${exchangeRate}, Decimals=${decimals}, BalanceInUSD=${balanceInUSD}`);
+
+    const response = {
+        native: { balance: balances.native.toString(), balanceInUSD: balanceInUSD.toFixed(2) },
+        tokens: {}
+    };
+
+    if (balances.tokens) {
+        console.log(`[/check-balance] Found tokens:`, balances.tokens);
+        for (const token in balances.tokens) {
+            const tokenBalance = balances.tokens[token];
+            const tokenInfo = networks[currency].tokens[token];
+            const tokenDecimals = tokenInfo.decimals || 18;
+            const tokenExchangeRate = getExchangeRate(token) || 0;
+
+            const balanceInMainUnit = parseFloat(ethers.formatUnits(tokenBalance, tokenDecimals));
+            const balanceInUSD = balanceInMainUnit * tokenExchangeRate;
+
+            console.log(`[/check-balance] Token ${token} check: Balance=${tokenBalance}, Rate=${tokenExchangeRate}, Decimals=${tokenDecimals}, BalanceInUSD=${balanceInUSD}`);
+
+            response.tokens[token] = {
+                balance: tokenBalance.toString(),
+                balanceInUSD: balanceInUSD.toFixed(2)
+            };
+        }
+    }
+
+    res.json(response);
 });

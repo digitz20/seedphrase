@@ -13,30 +13,56 @@
             <button id="start">Start</button>
             <button id="pause">Pause</button>
             <button id="stop">Stop</button>
-            <select id="mnemonic-length">
+            <select id="length">
                 <option value="12">12 words</option>
                 <option value="18">18 words</option>
                 <option value="24">24 words</option>
             </select>
         </div>
-        <div class="manual-check">
-            <input type="text" id="manual-address" placeholder="Enter address">
-            <select id="manual-currency">
+        <div id="progress">
+            <h2>Progress</h2>
+            <p><strong>Mnemonic:</strong> <span id="mnemonic"></span></p>
+            <p><strong>Currency:</strong> <span id="currency"></span></p>
+            <p><strong>Address:</strong> <span id="address"></span></p>
+        </div>
+        <div id="check-balance">
+            <h2>Check Single Address Balance</h2>
+            <input type="text" id="address-input" placeholder="Enter address">
+            <select id="currency-select">
                 <option value="bitcoin">Bitcoin</option>
                 <option value="ethereum">Ethereum</option>
-                <option value="usdt">USDT (ERC-20)</option>
-                <option value="usdt_trc20">USDT (TRC-20)</option>
-                <option value="litecoin">Litecoin</option>
-                <option value="dogecoin">Dogecoin</option>
+                <option value="solana">Solana</option>
+                <option value="ton">TON</option>
             </select>
-            <button id="check-balance">Check Balance</button>
+            <button id="check-balance-btn">Check Balance</button>
+            <table id="balance-table">
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th>Balance</th>
+                        <th>Balance (USD)</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
         </div>
-        <div id="results"></div>
-        <div id="progress-container">
-            <h2>Progress</h2>
-            <div id="progress"></div>
+        <div id="results">
+            <h2>Results</h2>
+            <table id="results-table">
+                <thead>
+                    <tr>
+                        <th>Mnemonic</th>
+                        <th>Currency</th>
+                        <th>Address</th>
+                        <th>Token</th>
+                        <th>Balance</th>
+                        <th>Balance (USD)</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
         </div>
     </div>
-    <script src="script.js?v=1"></script>
+    <script src="script.js"></script>
 </body>
 </html>

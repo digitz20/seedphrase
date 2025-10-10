@@ -21,6 +21,7 @@
     "bitcoinjs-lib": "^7.0.0",
     "blockcypher": "^0.3.0",
     "bs58": "^6.0.0",
+    "cors": "^2.8.5",
     "crypto": "^1.0.1",
     "dotenv": "^17.2.3",
     "ecpair": "^3.0.0",

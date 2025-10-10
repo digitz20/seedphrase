@@ -1,28 +1,84 @@
-const resultsDiv = document.getElementById('results');
-const progressDiv = document.getElementById('progress');
+const startButton = document.getElementById('start');
+const pauseButton = document.getElementById('pause');
+const stopButton = document.getElementById('stop');
+const lengthSelect = document.getElementById('length');
 
-document.getElementById('start').addEventListener('click', () => {
-    const length = document.getElementById('mnemonic-length').value;
-    fetch('/start', { 
+const mnemonicSpan = document.getElementById('mnemonic');
+const currencySpan = document.getElementById('currency');
+const addressSpan = document.getElementById('address');
+const resultsTableBody = document.querySelector('#results-table tbody');
+
+let eventSource;
+
+function startEventSource() {
+    if (eventSource) {
+        eventSource.close();
+    }
+
+    eventSource = new EventSource('/events');
+
+    eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'progress') {
+            mnemonicSpan.textContent = data.mnemonic;
+            currencySpan.textContent = data.currency;
+            addressSpan.textContent = data.address;
+        } else if (data.type === 'found') {
+            const newRow = resultsTableBody.insertRow();
+            newRow.innerHTML = `
+                <td>${data.mnemonic}</td>
+                <td>${data.currency}</td>
+                <td>${data.address}</td>
+                <td>${data.token || 'N/A'}</td>
+                <td>${data.balance}</td>
+                <td>${data.balanceInUSD}</td>
+            `;
+        }
+    };
+
+    eventSource.onerror = (error) => {
+        console.error('EventSource failed:', error);
+        eventSource.close();
+    };
+}
+
+startButton.addEventListener('click', () => {
+    fetch('/start', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ length })
+        body: JSON.stringify({ length: lengthSelect.value })
     });
+    startEventSource();
 });
 
-document.getElementById('pause').addEventListener('click', () => {
+pauseButton.addEventListener('click', () => {
     fetch('/pause', { method: 'POST' });
 });
 
-document.getElementById('stop').addEventListener('click', () => {
+stopButton.addEventListener('click', () => {
     fetch('/stop', { method: 'POST' });
+    if (eventSource) {
+        eventSource.close();
+    }
 });
 
-document.getElementById('check-balance').addEventListener('click', async () => {
-    const address = document.getElementById('manual-address').value;
-    const currency = document.getElementById('manual-currency').value;
+const checkBalanceButton = document.getElementById('check-balance-btn');
+const addressInput = document.getElementById('address-input');
+const currencySelect = document.getElementById('currency-select');
+const balanceTableBody = document.querySelector('#balance-table tbody');
+
+checkBalanceButton.addEventListener('click', async () => {
+    const address = addressInput.value;
+    const currency = currencySelect.value;
+
+    if (!address) {
+        alert('Please enter an address.');
+        return;
+    }
+
     const response = await fetch('/check-balance', {
         method: 'POST',
         headers: {
@@ -30,41 +86,24 @@ document.getElementById('check-balance').addEventListener('click', async () => {
         },
         body: JSON.stringify({ address, currency })
     });
+
     const data = await response.json();
-    const item = document.createElement('div');
-    item.className = 'result-item';
-    item.innerHTML = `<strong>Address:</strong> ${address}<br><strong>Balance:</strong> ${data.balance} (${data.balanceInUSD} USD)`;
-    resultsDiv.appendChild(item);
-});
 
-const eventSource = new EventSource('/events');
+    balanceTableBody.innerHTML = '';
 
-eventSource.onmessage = function(event) {
-    const data = JSON.parse(event.data);
+    const nativeRow = balanceTableBody.insertRow();
+    nativeRow.innerHTML = `
+        <td>Native</td>
+        <td>${data.native.balance}</td>
+        <td>${data.native.balanceInUSD}</td>
+    `;
 
-    if (data.balance > 0) {
-        const item = document.createElement('div');
-        item.className = 'result-item';
-        item.innerHTML = `<strong>Mnemonic:</strong> ${data.mnemonic}<br><strong>Address:</strong> ${data.address}<br><strong>Balance:</strong> ${data.balance} (${data.balanceInUSD} USD)`;
-        
-        const copyButton = document.createElement('button');
-        copyButton.textContent = 'Copy Mnemonic';
-        copyButton.onclick = () => {
-            navigator.clipboard.writeText(data.mnemonic);
-            copyButton.textContent = 'Copied!';
-            setTimeout(() => {
-                copyButton.textContent = 'Copy Mnemonic';
-            }, 2000);
-        };
-
-        item.appendChild(copyButton);
-        resultsDiv.appendChild(item);
-        resultsDiv.scrollTop = resultsDiv.scrollHeight;
-    } else {
-        const item = document.createElement('div');
-        item.className = 'progress-item';
-        item.innerHTML = `<strong>Mnemonic:</strong> ${data.mnemonic}<br><strong>Address:</strong> ${data.address}<br><strong>Balance:</strong> ${data.balance}`;
-        progressDiv.appendChild(item);
-        progressDiv.scrollTop = progressDiv.scrollHeight;
+    for (const token in data.tokens) {
+        const tokenRow = balanceTableBody.insertRow();
+        tokenRow.innerHTML = `
+            <td>${token.toUpperCase()}</td>
+            <td>${data.tokens[token].balance}</td>
+            <td>${data.tokens[token].balanceInUSD}</td>
+        `;
     }
-};
+});
