@@ -24,6 +24,8 @@ const port = process.env.PORT || 3004;
 const bip32 = BIP32Factory(ecc);
 const ECPair = ECPairFactory(ecc);
 
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 // ... [The rest of the bot logic from worker.js will be pasted here] ...
 
 const networks = {
@@ -232,6 +234,7 @@ async function getBalance(currency, address) {
 
         } catch (error) {
             console.error(`Error with ${provider.name} checking ${address}:`, error.message);
+            await sleep(1000); // Add a delay to avoid rate limiting
         }
     }
 
@@ -317,6 +320,7 @@ async function startBot() {
                 }
             }
         }
+        await sleep(500); // Pause between each seed phrase cycle
     }
 }
 
