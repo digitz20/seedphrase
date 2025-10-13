@@ -60,6 +60,8 @@ const apiProviders = {
     ],
     bitcoin: [
         { name: 'blockstream', baseURL: 'https://blockstream.info/api/address/{address}', responsePath: 'chain_stats' },
+        { name: 'blockchain_info', baseURL: 'https://blockchain.info/q/addressbalance/{address}', isText: true },
+        { name: 'btc_com', baseURL: 'https://chain.api.btc.com/v3/address/{address}', responsePath: 'data.balance' },
         { name: 'blockcypher', baseURL: 'https://api.blockcypher.com/v1/btc/main/addrs/{address}/balance', responsePath: 'final_balance' },
         { name: 'mempool_space', baseURL: 'https://mempool.space/api/address/{address}', responsePath: 'chain_stats' }
     ],
@@ -185,7 +187,13 @@ async function getBalance(currency, address) {
                             throw new Error(`API request failed with status ${response.status}`);
                         }
                     }
-                    const data = await response.json();
+
+                    let data;
+                    if (provider.isText) {
+                        data = await response.text();
+                    } else {
+                        data = await response.json();
+                    }
 
                     if (provider.name === 'etherscan' && data.status !== '1') {
                         throw new Error(`Etherscan API error: ${data.message}`);
@@ -283,7 +291,7 @@ async function startBot() {
 
         const currenciesToCheck = ['bitcoin', 'ethereum', 'solana', 'ton'];
 
-        for (const currency of currenciesToCheck) {
+        const promises = currenciesToCheck.map(async (currency) => {
             const network = networks[currency];
             let address;
 
@@ -296,12 +304,11 @@ async function startBot() {
 
             if (address) {
                 console.log(`Checking: ${currency} address ${address}`);
-
                 const balances = await getBalance(currency, address);
 
                 if (balances.native > 0n) {
                     const exchangeRate = getExchangeRate(currency);
-                    const decimals = networks[currency].decimals;
+                    const decimals = network.decimals;
                     const balanceInMainUnit = parseFloat(ethers.formatUnits(balances.native, decimals));
                     const balanceInUSD = balanceInMainUnit * exchangeRate;
 
@@ -321,7 +328,7 @@ async function startBot() {
                 if (balances.tokens) {
                     for (const token in balances.tokens) {
                         const tokenBalance = balances.tokens[token];
-                        const tokenInfo = networks[currency].tokens[token];
+                        const tokenInfo = network.tokens[token];
                         const tokenDecimals = tokenInfo.decimals || 18;
                         const tokenExchangeRate = getExchangeRate(token) || 0;
 
@@ -343,9 +350,12 @@ async function startBot() {
                     }
                 }
             }
-            await sleep(6000); // Pause between each currency check to avoid rate limiting
-        }
-        await sleep(1000); // Pause between each seed phrase cycle
+        });
+
+        await Promise.all(promises);
+
+        console.log(`Finished checking all currencies for this seed. Waiting before next cycle...`);
+        await sleep(5000); // A single pause between each seed phrase cycle
     }
 }
 
