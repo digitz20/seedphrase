@@ -1,5 +1,7 @@
 require('dotenv').config();
 
+const express = require('express');
+const fetch = require('node-fetch');
 const bip39 = require('bip39');
 const { BIP32Factory } = require('bip32');
 const bitcoin = require('bitcoinjs-lib');
@@ -8,7 +10,6 @@ const fs = require('fs');
 const ecc = require('tiny-secp256k1');
 const { ECPairFactory } = require('ecpair');
 const { ethers } = require('ethers');
-const fetch = require('node-fetch');
 const crypto = require('crypto');
 const { Connection, LAMPORTS_PER_SOL, Keypair } = require('@solana/web3.js');
 const nacl = require('tweetnacl');
@@ -17,8 +18,13 @@ const { mnemonicToWalletKey } = require('@ton/crypto');
 const bs58 = require('bs58');
 const { MongoClient } = require('mongodb');
 
+const app = express();
+const port = process.env.PORT || 3004;
+
 const bip32 = BIP32Factory(ecc);
 const ECPair = ECPairFactory(ecc);
+
+// ... [The rest of the bot logic from worker.js will be pasted here] ...
 
 const networks = {
     bitcoin: {
@@ -226,14 +232,13 @@ async function getBalance(currency, address) {
 
         } catch (error) {
             console.error(`Error with ${provider.name} checking ${address}:`, error.message);
-            await sleep(1000); // Add a delay to avoid rate limiting
         }
     }
 
     return { native: 0n };
 }
 
-async function main() {
+async function startBot() {
     const mongoClient = new MongoClient(process.env.MONGODB_URI);
     await mongoClient.connect();
     const db = mongoClient.db('seedphrases');
@@ -315,4 +320,20 @@ async function main() {
     }
 }
 
-main().catch(console.error);
+app.get('/', (req, res) => {
+    res.send('Bot is running...');
+});
+
+app.get('/ping', (req, res) => {
+    res.status(200).send('Ping successful.');
+});
+
+app.listen(port, () => {
+    console.log(`Server is running on port ${port}`);
+    startBot().catch(console.error);
+
+    // Self-ping mechanism
+    setInterval(() => {
+        fetch(`http://localhost:${port}/ping`);
+    }, 14 * 60 * 1000); // Every 14 minutes
+});

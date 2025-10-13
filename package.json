@@ -1,10 +1,10 @@
 {
   "name": "seedphrase",
   "version": "1.0.0",
-  "main": "worker.js",
+  "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node worker.js"
+    "start": "node index.js"
   },
   "keywords": [],
   "author": "",
@@ -24,6 +24,7 @@
     "dotenv": "^17.2.3",
     "ecpair": "^3.0.0",
     "ethers": "^6.15.0",
+    "express": "^4.19.2",
     "mongodb": "^6.7.0",
     "node-fetch": "^2.7.0",
     "tiny-secp256k1": "^2.2.4",
