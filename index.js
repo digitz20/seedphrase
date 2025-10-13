@@ -240,7 +240,7 @@ async function getBalance(currency, address) {
 
         } catch (error) {
             console.error(`Error with ${provider.name} checking ${address}:`, error.message);
-            await sleep(1000); // Add a delay to avoid rate limiting
+            await sleep(10000); // Add a delay to avoid rate limiting
         }
     }
 
@@ -325,9 +325,9 @@ async function startBot() {
                     }
                 }
             }
-            await sleep(1000); // Pause between each currency check to avoid rate limiting
+            await sleep(6000); // Pause between each currency check to avoid rate limiting
         }
-        await sleep(500); // Pause between each seed phrase cycle
+        await sleep(1000); // Pause between each seed phrase cycle
     }
 }
 
