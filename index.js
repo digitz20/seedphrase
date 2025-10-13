@@ -325,6 +325,7 @@ async function startBot() {
                     }
                 }
             }
+            await sleep(1000); // Pause between each currency check to avoid rate limiting
         }
         await sleep(500); // Pause between each seed phrase cycle
     }
