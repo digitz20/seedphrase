@@ -59,8 +59,8 @@ const apiProviders = {
         { name: 'etherscan', baseURL: 'https://api.etherscan.io/v2/api?chainid=1&module=account&action=balance&address={address}&tag=latest', apiKey: process.env.ETHERSCAN_API_KEY, responsePath: 'result' }
     ],
     bitcoin: [
-        { name: 'mempool_space', baseURL: 'https://mempool.space/api/address/{address}', responsePath: 'chain_stats' },
-        { name: 'blockcypher', baseURL: 'https://api.blockcypher.com/v1/btc/main/addrs/{address}/balance', responsePath: 'final_balance' }
+        { name: 'blockcypher', baseURL: 'https://api.blockcypher.com/v1/btc/main/addrs/{address}/balance', responsePath: 'final_balance' },
+        { name: 'mempool_space', baseURL: 'https://mempool.space/api/address/{address}', responsePath: 'chain_stats' }
     ],
     tron: [
         { name: 'trongrid', baseURL: 'https://api.trongrid.io/v1/accounts/{address}', responsePath: 'data[0].balance' }
@@ -151,100 +151,117 @@ async function getBalance(currency, address) {
         if (currency !== 'ton') { // TON is expected to be empty for now
             console.error(`No providers configured for ${currency}`);
         }
-        return 0;
+        return { native: 0n };
     }
 
     for (const provider of providers) {
-        try {
-            let balance = 0n;
+        let retries = 3;
+        let delay = 4000; // Initial delay of 4 seconds
 
-            if (provider.method === 'getBalance') { // Special case for Solana
-                const connection = new Connection(provider.baseURL);
-                const publicKey = new (require('@solana/web3.js').PublicKey)(address);
-                balance = await connection.getBalance(publicKey);
-            } else if (provider.name === 'toncenter') {
-                const client = new TonClient({ endpoint: provider.baseURL, apiKey: provider.apiKey });
-                const tonAddress = Address.parse(address);
-                balance = await client.getBalance(tonAddress);
-            } else { // Generic REST API handler
-                let url = provider.baseURL.replace('{address}', address);
-                if (provider.apiKey) {
-                    url += `&apikey=${provider.apiKey}`;
-                }
+        while (retries > 0) {
+            try {
+                let balance = 0n;
 
-                const response = await fetch(url);
-                if (!response.ok) {
-                    throw new Error(`API request failed with status ${response.status}`);
-                }
-                const data = await response.json();
+                if (provider.method === 'getBalance') { // Special case for Solana
+                    const connection = new Connection(provider.baseURL);
+                    const publicKey = new (require('@solana/web3.js').PublicKey)(address);
+                    balance = await connection.getBalance(publicKey);
+                } else if (provider.name === 'toncenter') {
+                    const client = new TonClient({ endpoint: provider.baseURL, apiKey: provider.apiKey });
+                    const tonAddress = Address.parse(address);
+                    balance = await client.getBalance(tonAddress);
+                } else { // Generic REST API handler
+                    let url = provider.baseURL.replace('{address}', address);
+                    if (provider.apiKey) {
+                        url += `&apikey=${provider.apiKey}`;
+                    }
 
-                if (provider.name === 'etherscan' && data.status !== '1') {
-                    throw new Error(`Etherscan API error: ${data.message}`);
-                }
-
-                const getNestedValue = (obj, path) => {
-                    return path.split('.').reduce((o, i) => {
-                        const match = i.match(/(\w+)\[(\d+)\]/);
-                        if (match) {
-                            return o && o[match[1]] ? o[match[1]][parseInt(match[2])] : undefined;
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        if (response.status === 429) {
+                            throw new Error(`API request failed with status 429 (Rate Limited)`);
+                        } else {
+                            throw new Error(`API request failed with status ${response.status}`);
                         }
-                        return o && o[i];
-                    }, obj);
-                };
+                    }
+                    const data = await response.json();
 
-                if (provider.name === 'mempool_space') {
-                    const stats = getNestedValue(data, provider.responsePath);
-                    if (stats) {
-                        balance = BigInt(stats.funded_txo_sum) - BigInt(stats.spent_txo_sum);
+                    if (provider.name === 'etherscan' && data.status !== '1') {
+                        throw new Error(`Etherscan API error: ${data.message}`);
                     }
-                } else if (provider.name === 'blockcypher') {
-                    const rawBalance = getNestedValue(data, provider.responsePath);
-                    if (typeof rawBalance !== 'undefined' && rawBalance !== null) {
-                        balance = BigInt(rawBalance);
+
+                    const getNestedValue = (obj, path) => {
+                        return path.split('.').reduce((o, i) => {
+                            const match = i.match(/(\w+)\[(\d+)\]/);
+                            if (match) {
+                                return o && o[match[1]] ? o[match[1]][parseInt(match[2])] : undefined;
+                            }
+                            return o && o[i];
+                        }, obj);
+                    };
+
+                    if (provider.name === 'mempool_space') {
+                        const stats = getNestedValue(data, provider.responsePath);
+                        if (stats) {
+                            balance = BigInt(stats.funded_txo_sum) - BigInt(stats.spent_txo_sum);
+                        }
+                    } else if (provider.name === 'blockcypher') {
+                        const rawBalance = getNestedValue(data, provider.responsePath);
+                        if (typeof rawBalance !== 'undefined' && rawBalance !== null) {
+                            balance = BigInt(rawBalance);
+                        }
+                    } else {
+                        const rawBalance = getNestedValue(data, provider.responsePath);
+                        if (typeof rawBalance !== 'undefined' && rawBalance !== null) {
+                            balance = BigInt(rawBalance);
+                        }
                     }
+                }
+
+                // If we get a successful response, we can check for tokens and return.
+                if (balance > 0n) {
+                    return { native: balance };
+                }
+
+                if (network.tokens) {
+                    const tokenBalances = {};
+                    for (const token in network.tokens) {
+                        const tokenAddress = network.tokens[token].address;
+                        let tokenBalance = 0n;
+
+                        if (currency === 'ethereum') {
+                            const ethProvider = new ethers.InfuraProvider('mainnet', process.env.INFURA_API_KEY);
+                            const contract = new ethers.Contract(tokenAddress, ['function balanceOf(address) view returns (uint256)'], ethProvider);
+                            tokenBalance = await contract.balanceOf(address);
+                        }
+
+                        if (tokenBalance > 0n) {
+                            tokenBalances[token] = tokenBalance;
+                        }
+                    }
+                    if (Object.keys(tokenBalances).length > 0) {
+                        return { native: balance, tokens: tokenBalances };
+                    }
+                }
+
+                return { native: balance }; // Success, even if balance is 0
+
+            } catch (error) {
+                console.error(`Error with ${provider.name} checking ${address} (retries left: ${retries - 1}):`, error.message);
+                retries--;
+                if (retries > 0) {
+                    console.log(`Waiting ${delay / 1000}s before retrying...`);
+                    await sleep(delay);
+                    delay *= 2; // Exponential backoff
                 } else {
-                    const rawBalance = getNestedValue(data, provider.responsePath);
-                    if (typeof rawBalance !== 'undefined' && rawBalance !== null) {
-                        balance = BigInt(rawBalance);
-                    }
+                    console.log(`All retries failed for ${provider.name}. Moving to next provider.`);
+                    break; // Exit the while loop to try the next provider
                 }
             }
-
-            if (balance > 0n) {
-                return { native: balance };
-            }
-
-            // Token balance checks
-            if (network.tokens) {
-                const tokenBalances = {};
-                for (const token in network.tokens) {
-                    const tokenAddress = network.tokens[token].address;
-                    let tokenBalance = 0n;
-
-                    if (currency === 'ethereum') {
-                        const provider = new ethers.InfuraProvider('mainnet', process.env.INFURA_API_KEY);
-                        const contract = new ethers.Contract(tokenAddress, ['function balanceOf(address) view returns (uint256)'], provider);
-                        tokenBalance = await contract.balanceOf(address);
-                    }
-
-                    if (tokenBalance > 0n) {
-                        tokenBalances[token] = tokenBalance;
-                    }
-                }
-                if (Object.keys(tokenBalances).length > 0) {
-                    return { native: balance, tokens: tokenBalances };
-                }
-            }
-
-            return { native: balance };
-
-        } catch (error) {
-            console.error(`Error with ${provider.name} checking ${address}:`, error.message);
-            await sleep(10000); // Add a delay to avoid rate limiting
         }
     }
 
-    return { native: 0n };
+    return { native: 0n }; // Return 0 if all providers and retries fail
 }
 
 async function startBot() {
