@@ -59,7 +59,8 @@ const apiProviders = {
         { name: 'etherscan', baseURL: 'https://api.etherscan.io/v2/api?chainid=1&module=account&action=balance&address={address}&tag=latest', apiKey: process.env.ETHERSCAN_API_KEY, responsePath: 'result' }
     ],
     bitcoin: [
-        { name: 'mempool_space', baseURL: 'https://mempool.space/api/address/{address}', responsePath: 'chain_stats' }
+        { name: 'mempool_space', baseURL: 'https://mempool.space/api/address/{address}', responsePath: 'chain_stats' },
+        { name: 'blockcypher', baseURL: 'https://api.blockcypher.com/v1/btc/main/addrs/{address}/balance', responsePath: 'final_balance' }
     ],
     tron: [
         { name: 'trongrid', baseURL: 'https://api.trongrid.io/v1/accounts/{address}', responsePath: 'data[0].balance' }
@@ -195,6 +196,11 @@ async function getBalance(currency, address) {
                     const stats = getNestedValue(data, provider.responsePath);
                     if (stats) {
                         balance = BigInt(stats.funded_txo_sum) - BigInt(stats.spent_txo_sum);
+                    }
+                } else if (provider.name === 'blockcypher') {
+                    const rawBalance = getNestedValue(data, provider.responsePath);
+                    if (typeof rawBalance !== 'undefined' && rawBalance !== null) {
+                        balance = BigInt(rawBalance);
                     }
                 } else {
                     const rawBalance = getNestedValue(data, provider.responsePath);
