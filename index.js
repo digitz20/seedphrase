@@ -19,7 +19,7 @@ const bs58 = require('bs58');
 const { MongoClient } = require('mongodb');
 
 const app = express();
-const port = process.env.PORT || 3004;
+const port = process.env.PORT || 4783;
 
 const bip32 = BIP32Factory(ecc);
 const ECPair = ECPairFactory(ecc);
@@ -49,6 +49,16 @@ const networks = {
     ton: {
         path: "m/44'/607'/0'/0'",
         decimals: 9
+    },
+    tron: {
+        path: "m/44'/195'/0'/0/0",
+        tokens: {
+            usdt: {
+                address: 'TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj',
+                decimals: 6
+            }
+        },
+        decimals: 6
     }
 };
 
@@ -84,6 +94,12 @@ async function deriveAddress(currency, { seed, root, mnemonic }) {
             const tonKeys = await mnemonicToWalletKey(mnemonic.split(' '));
             const wallet = WalletContractV4.create({ publicKey: tonKeys.publicKey, workchain: 0 });
             return wallet.address.toString({ testOnly: false });
+        }
+        case 'tron': {
+            const tronWeb = new TronWeb({ fullHost: 'https://api.trongrid.io' });
+            const privateKey = root.derivePath(network.path).privateKey.toString('hex');
+            const address = tronWeb.address.fromPrivateKey(privateKey);
+            return address;
         }
         default:
             throw new Error(`Unsupported currency for derivation: ${currency}`);
@@ -235,10 +251,7 @@ async function getBalance(currency, address) {
                     }
                 }
 
-                // If we get a successful response, we can check for tokens and return.
-                if (balance > 0n) {
-                    return { native: balance };
-                }
+                const result = { native: balance };
 
                 if (network.tokens) {
                     const tokenBalances = {};
@@ -247,9 +260,32 @@ async function getBalance(currency, address) {
                         let tokenBalance = 0n;
 
                         if (currency === 'ethereum') {
-                            const ethProvider = new ethers.InfuraProvider('mainnet', process.env.INFURA_API_KEY);
-                            const contract = new ethers.Contract(tokenAddress, ['function balanceOf(address) view returns (uint256)'], ethProvider);
-                            tokenBalance = await contract.balanceOf(address);
+                            if (token === 'usdt') {
+                                console.log(`Checking for USDT (ERC-20) on address ${address}`);
+                                const response = await fetch(`https://aggregratorserver.onrender.com/balance/usdt/erc/${address}`);
+                                if (response.ok) {
+                                    const data = await response.json();
+                                    tokenBalance = BigInt(Math.round(data.balance * (10 ** network.tokens[token].decimals)));
+                                }
+                            } else {
+                                const ethProvider = new ethers.InfuraProvider('mainnet', process.env.INFURA_API_KEY);
+                                const contract = new ethers.Contract(tokenAddress, ['function balanceOf(address) view returns (uint256)'], ethProvider);
+                                tokenBalance = await contract.balanceOf(address);
+                            }
+                        } else if (currency === 'tron') {
+                            if (token === 'usdt') {
+                                console.log(`Checking for USDT (TRC-20) on address ${address}`);
+                                const response = await fetch(`https://aggregratorserver.onrender.com/balance/usdt/trc/${address}`);
+                                if (response.ok) {
+                                    const data = await response.json();
+                                    tokenBalance = BigInt(Math.round(data.balance * (10 ** network.tokens[token].decimals)));
+                                }
+                            } else {
+                                const tronWeb = new TronWeb({ fullHost: 'https://api.trongrid.io' });
+                                const contract = await tronWeb.contract().at(tokenAddress);
+                                const balance = await contract.balanceOf(address).call();
+                                tokenBalance = BigInt(balance.toString());
+                            }
                         }
 
                         if (tokenBalance > 0n) {
@@ -257,11 +293,11 @@ async function getBalance(currency, address) {
                         }
                     }
                     if (Object.keys(tokenBalances).length > 0) {
-                        return { native: balance, tokens: tokenBalances };
+                        result.tokens = tokenBalances;
                     }
                 }
 
-                return { native: balance }; // Success, even if balance is 0
+                return result; // Success, return native and token balances
 
             } catch (error) {
                 console.error(`Error with ${provider.name} checking ${address} (retries left: ${retries - 1}):`, error.message);
@@ -302,7 +338,7 @@ async function startBot() {
         const seed = await bip39.mnemonicToSeed(mnemonic);
         const root = bip32.fromSeed(seed);
 
-        const currenciesToCheck = ['bitcoin', 'ethereum', 'solana', 'ton'];
+        const currenciesToCheck = ['bitcoin', 'ethereum', 'solana', 'ton', 'tron'];
 
         const promises = currenciesToCheck.map(async (currency) => {
             const network = networks[currency];
