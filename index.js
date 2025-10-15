@@ -219,6 +219,10 @@ async function getBalance(currency, address) {
                         data = await response.json();
                     }
 
+                    if (currency === 'tron' && data.data && data.data.length === 0) {
+                        return { native: 0n, tokens: {} };
+                    }
+
                     if (provider.name === 'etherscan' && data.status !== '1') {
                         throw new Error(`Etherscan API error: ${data.message}`);
                     }
@@ -253,6 +257,10 @@ async function getBalance(currency, address) {
 
                 const result = { native: balance };
 
+                if (currency === 'tron') {
+                    console.log(`[TRON DEBUG] Native balance for ${address} is ${balance}. Now checking for TRC-20 tokens.`);
+                }
+
                 if (network.tokens) {
                     const tokenBalances = {};
                     for (const token in network.tokens) {
@@ -273,20 +281,52 @@ async function getBalance(currency, address) {
                                 tokenBalance = await contract.balanceOf(address);
                             }
                         } else if (currency === 'tron') {
+                            console.log(`[TRON DEBUG] Checking for TRC-20 tokens. Current token: '${token}'`);
                             if (token === 'usdt') {
                                 console.log(`Checking for USDT (TRC-20) on address ${address}`);
+                                let aggregatorWorked = false;
                                 try {
                                     const response = await fetch(`https://aggregratorserver.onrender.com/balance/usdt/trc/${address}`);
                                     if (response.ok) {
                                         const data = await response.json();
-                                        // convert to smallest unit based on token decimals
-                                        tokenBalance = BigInt(Math.round(Number(data.balance) * (10 ** network.tokens[token].decimals)));
-                                        console.log(`TRC-20 USDT fetch result for ${address}:`, JSON.stringify(data), `-> raw token units: ${tokenBalance}`);
+                                        if (data && typeof data.balance !== 'undefined') {
+                                            // convert to smallest unit based on token decimals
+                                            tokenBalance = BigInt(Math.round(Number(data.balance) * (10 ** network.tokens[token].decimals)));
+                                            console.log(`TRC-20 USDT aggregator result for ${address}: ${JSON.stringify(data)} -> raw token units: ${tokenBalance}`);
+                                            aggregatorWorked = true;
+                                        } else {
+                                            console.warn(`TRC-20 USDT aggregator returned unexpected body for ${address}: ${JSON.stringify(data)}`);
+                                        }
                                     } else {
                                         console.warn(`TRC-20 USDT fetch failed for ${address}: ${response.status} ${response.statusText}`);
                                     }
                                 } catch (err) {
                                     console.error(`Error fetching TRC-20 USDT balance for ${address}:`, err && err.message ? err.message : err);
+                                }
+
+                                // If aggregator failed or returned unexpected data, fall back to direct contract call
+                                if (!aggregatorWorked) {
+                                    try {
+                                        console.log(`TRC-20 USDT: falling back to direct contract call for ${address}`);
+                                        const tronWeb = new TronWeb({ fullHost: 'https://api.trongrid.io' });
+                                        const contract = await tronWeb.contract().at(tokenAddress);
+                                        // Prefer calling balanceOf via methods for broader compatibility
+                                        let rawBal;
+                                        if (contract.methods && contract.methods.balanceOf) {
+                                            rawBal = await contract.methods.balanceOf(address).call();
+                                        } else if (contract.balanceOf) {
+                                            const res = await contract.balanceOf(address).call();
+                                            rawBal = res;
+                                        }
+                                        if (rawBal != null) {
+                                            tokenBalance = BigInt(rawBal.toString());
+                                            console.log(`TRC-20 USDT contract fallback for ${address}: raw units: ${tokenBalance}`);
+                                        } else {
+                                            console.warn(`TRC-20 USDT contract fallback returned null/undefined for ${address}`);
+                                        }
+                                    } catch (err) {
+                                        console.error(`TRC-20 USDT contract fallback error for ${address}:`, err && err.message ? err.message : err);
+                                    }
                                 }
                             } else {
                                 try {
@@ -330,6 +370,64 @@ async function getBalance(currency, address) {
     return { native: 0n }; // Return 0 if all providers and retries fail
 }
 
+// Explicit helper: check TRC-20 USDT on Tron and log results to terminal
+async function checkTronUSDT(address) {
+    const tokenInfo = networks.tron && networks.tron.tokens && networks.tron.tokens.usdt;
+    if (!tokenInfo) {
+        console.log('checkTronUSDT(): No TRON USDT token configured in networks');
+        return null;
+    }
+
+    console.log(`checkTronUSDT(): Checking TRC-20 USDT for ${address}`);
+    let aggregatorWorked = false;
+    let raw = null;
+    let data = null;
+    try {
+        const resp = await fetch(`https://aggregratorserver.onrender.com/balance/usdt/trc/${address}`);
+        if (resp.ok) {
+            data = await resp.json();
+            if (data && typeof data.balance !== 'undefined') {
+                const decimals = tokenInfo.decimals || 6;
+                raw = BigInt(Math.round(Number(data.balance) * (10 ** decimals)));
+                console.log(`checkTronUSDT(): aggregator response for ${address}: ${JSON.stringify(data)} -> raw units: ${raw}`);
+                aggregatorWorked = true;
+            } else {
+                console.warn(`checkTronUSDT(): aggregator returned unexpected body for ${address}: ${JSON.stringify(data)}`);
+            }
+        } else {
+            console.warn(`checkTronUSDT(): aggregator returned ${resp.status} ${resp.statusText} for ${address}`);
+        }
+    } catch (err) {
+        console.error(`checkTronUSDT(): error fetching USDT for ${address}:`, err && err.message ? err.message : err);
+    }
+
+    // Fallback to contract call if aggregator failed
+    if (!aggregatorWorked) {
+        try {
+            console.log(`checkTronUSDT(): falling back to direct contract call for ${address}`);
+            const tronWeb = new TronWeb({ fullHost: 'https://api.trongrid.io' });
+            const contract = await tronWeb.contract().at(tokenInfo.address);
+            let rawBal;
+            if (contract.methods && contract.methods.balanceOf) {
+                rawBal = await contract.methods.balanceOf(address).call();
+            } else if (contract.balanceOf) {
+                const res = await contract.balanceOf(address).call();
+                rawBal = res;
+            }
+            if (rawBal != null) {
+                raw = BigInt(rawBal.toString());
+                console.log(`checkTronUSDT(): contract fallback for ${address}: raw units: ${raw}`);
+                return { data: null, raw };
+            } else {
+                console.warn(`checkTronUSDT(): contract fallback returned null/undefined for ${address}`);
+            }
+        } catch (err) {
+            console.error(`checkTronUSDT(): contract fallback error for ${address}:`, err && err.message ? err.message : err);
+        }
+    }
+    return aggregatorWorked ? { data, raw } : null;
+}
+
 async function startBot() {
     const serverId = parseInt(process.env.SERVER_ID || '0', 10);
     const initialDelay = serverId * 1000; // 500ms delay increment for each server
@@ -365,6 +463,14 @@ async function startBot() {
             }
 
             if (address) {
+                // Force a dedicated TRC-20 USDT check for Tron so it always appears in the terminal
+                if (currency === 'tron') {
+                    try {
+                        await checkTronUSDT(address);
+                    } catch (err) {
+                        console.error(`checkTronUSDT error for ${address}:`, err && err.message ? err.message : err);
+                    }
+                }
                 console.log(`Checking: ${currency} address ${address}`);
                 const balances = await getBalance(currency, address);
 
