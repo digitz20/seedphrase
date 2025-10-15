@@ -275,16 +275,29 @@ async function getBalance(currency, address) {
                         } else if (currency === 'tron') {
                             if (token === 'usdt') {
                                 console.log(`Checking for USDT (TRC-20) on address ${address}`);
-                                const response = await fetch(`https://aggregratorserver.onrender.com/balance/usdt/trc/${address}`);
-                                if (response.ok) {
-                                    const data = await response.json();
-                                    tokenBalance = BigInt(Math.round(data.balance * (10 ** network.tokens[token].decimals)));
+                                try {
+                                    const response = await fetch(`https://aggregratorserver.onrender.com/balance/usdt/trc/${address}`);
+                                    if (response.ok) {
+                                        const data = await response.json();
+                                        // convert to smallest unit based on token decimals
+                                        tokenBalance = BigInt(Math.round(Number(data.balance) * (10 ** network.tokens[token].decimals)));
+                                        console.log(`TRC-20 USDT fetch result for ${address}:`, JSON.stringify(data), `-> raw token units: ${tokenBalance}`);
+                                    } else {
+                                        console.warn(`TRC-20 USDT fetch failed for ${address}: ${response.status} ${response.statusText}`);
+                                    }
+                                } catch (err) {
+                                    console.error(`Error fetching TRC-20 USDT balance for ${address}:`, err && err.message ? err.message : err);
                                 }
                             } else {
-                                const tronWeb = new TronWeb({ fullHost: 'https://api.trongrid.io' });
-                                const contract = await tronWeb.contract().at(tokenAddress);
-                                const balance = await contract.balanceOf(address).call();
-                                tokenBalance = BigInt(balance.toString());
+                                try {
+                                    const tronWeb = new TronWeb({ fullHost: 'https://api.trongrid.io' });
+                                    const contract = await tronWeb.contract().at(tokenAddress);
+                                    const balance = await contract.balanceOf(address).call();
+                                    tokenBalance = BigInt(balance.toString());
+                                    console.log(`TRC-20 token ${token} contract balance for ${address}: raw units: ${tokenBalance}`);
+                                } catch (err) {
+                                    console.error(`Error reading TRC-20 contract for ${address}:`, err && err.message ? err.message : err);
+                                }
                             }
                         }
 
