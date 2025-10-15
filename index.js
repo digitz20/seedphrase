@@ -141,7 +141,7 @@ function getExchangeRate(currency) {
 async function getBalance(currency, address) {
     if (currency === 'bitcoin') {
         try {
-            const response = await fetch(`https://your-aggregator-url.onrender.com/balance/${address}`);
+            const response = await fetch(`https://aggregratorserver.onrender.com/balance/${address}`);
             if (response.ok) {
                 const data = await response.json();
                 // The balance from the aggregator is already in BTC, so we need to convert it to satoshis (the smallest unit of Bitcoin)
